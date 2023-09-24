@@ -1,0 +1,110 @@
+# app.py
+from flask import Flask, render_template, request, redirect, url_for, flash
+import sqlite3
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
+# Database initialization
+def init_db():
+    conn = sqlite3.connect('loan_app.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            credit_score INTEGER DEFAULT 0
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS loans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount REAL,
+            status TEXT DEFAULT 'Pending',
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# Sample user data (for testing purposes)
+sample_users = [
+    {'username': 'user1', 'password': 'password1'},
+    {'username': 'user2', 'password': 'password2'},
+]
+
+# Credit scoring function (simplified)
+def calculate_credit_score(username):
+    # You can implement a more sophisticated credit scoring system here
+    return len(username) * 10
+
+# Routes
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form['username']
+    password = request.form['password']
+
+    user = next((u for u in sample_users if u['username'] == username and u['password'] == password), None)
+
+    if user:
+        flash('Login successful', 'success')
+        session['user_id'] = user['id']
+        return redirect(url_for('dashboard'))
+    else:
+        flash('Login failed. Please check your credentials.', 'danger')
+        return redirect(url_for('index'))
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user_id' in session:
+        user_id = session['user_id']
+        conn = sqlite3.connect('loan_app.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+        cursor.execute('SELECT * FROM loans WHERE user_id = ?', (user_id,))
+        loans = cursor.fetchall()
+        conn.close()
+        return render_template('dashboard.html', user=user, loans=loans)
+    else:
+        flash('Please log in first', 'warning')
+        return redirect(url_for('index'))
+
+@app.route('/apply_loan', methods=['POST'])
+def apply_loan():
+    if 'user_id' in session:
+        user_id = session['user_id']
+        amount = float(request.form['amount'])
+        credit_score = calculate_credit_score(request.form['username'])
+
+        if credit_score >= 50:  # Define your credit score threshold
+            conn = sqlite3.connect('loan_app.db')
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO loans (user_id, amount) VALUES (?, ?)', (user_id, amount))
+            conn.commit()
+            conn.close()
+            flash('Loan application submitted successfully', 'success')
+        else:
+            flash('Loan application rejected due to low credit score', 'danger')
+
+        return redirect(url_for('dashboard'))
+    else:
+        flash('Please log in first', 'warning')
+        return redirect(url_for('index'))
+
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    flash('Logged out successfully', 'success')
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
